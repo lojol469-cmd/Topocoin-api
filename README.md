@@ -58,11 +58,20 @@ docker run -p 8000:8000 -p 8501:8501 topocoin
 
 ## Endpoints API
 
-- `GET /balance/{network}/{wallet}` - Obtenir les balances SOL et TPC
-- `POST /send_sol` - Envoyer des SOL
-- `POST /send_tpc` - Envoyer des Topocoin
-- `GET /wallets` - Liste des wallets disponibles
-- `GET /networks` - Liste des réseaux disponibles
+### Authentification
+- `POST /register` : Inscription utilisateur (email, password, wallet_address, seed_phrase_encrypted)
+- `POST /login` : Connexion (email, password) → retourne JWT token
+- `GET /me` : Informations utilisateur (nécessite token JWT)
+
+### Wallet
+- `GET /balance` : Obtenir les balances SOL et TPC (nécessite token)
+- `POST /send_sol` : Envoyer des SOL (nécessite token) - *Signature client-side requise*
+- `POST /send_tpc` : Envoyer des Topocoin (nécessite token) - *Signature client-side requise*
+
+### Utilitaires
+- `GET /networks` : Liste des réseaux disponibles
+
+**Note** : Les transactions sont signées côté client pour la sécurité. L'API ne stocke pas les clés privées.
 
 ## Configuration
 
