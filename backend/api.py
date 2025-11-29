@@ -9,6 +9,7 @@ from spl.token.instructions import transfer as spl_transfer, TransferParams as S
 from spl.token.constants import TOKEN_PROGRAM_ID
 import json
 import os
+import base64
 import uvicorn
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -121,10 +122,13 @@ def get_client(network: str):
     return Client(networks[network])
 
 def load_keypair_from_user(user):
-    # For now, assume keypair is stored or generated
-    # In production, users manage their own keys
-    # This is a placeholder
-    raise HTTPException(status_code=400, detail="Keypair management not implemented")
+    if not user.get('seed_phrase_encrypted'):
+        raise HTTPException(status_code=400, detail="No keypair stored for user")
+    try:
+        secret_key = base64.b64decode(user['seed_phrase_encrypted'])
+        return Keypair.from_bytes(secret_key)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid keypair: {e}")
 
 def get_decimals(client: Client):
     try:
@@ -147,12 +151,26 @@ async def register(user: UserCreate):
     # Hash password
     hashed_password = get_password_hash(user.password)
     
+    # Generate or use keypair
+    if user.seed_phrase_encrypted:
+        try:
+            secret_key = base64.b64decode(user.seed_phrase_encrypted)
+            keypair = Keypair.from_bytes(secret_key)
+            wallet_address = str(keypair.pubkey())
+            seed_phrase_encrypted = user.seed_phrase_encrypted
+        except:
+            raise HTTPException(status_code=400, detail="Invalid seed_phrase_encrypted")
+    else:
+        keypair = Keypair()
+        seed_phrase_encrypted = base64.b64encode(bytes(keypair)).decode()
+        wallet_address = str(keypair.pubkey())
+    
     # Create user
     user_dict = {
         "email": user.email,
         "hashed_password": hashed_password,
-        "wallet_address": user.wallet_address,
-        "seed_phrase_encrypted": user.seed_phrase_encrypted,
+        "wallet_address": wallet_address,
+        "seed_phrase_encrypted": seed_phrase_encrypted,
         "created_at": datetime.utcnow()
     }
     
@@ -163,7 +181,7 @@ async def register(user: UserCreate):
         data={"sub": user.email}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "seed_phrase": seed_phrase_encrypted if not user.seed_phrase_encrypted else None}
 
 @app.post("/api/auth/login", response_model=Token)
 async def login(user: UserLogin):
@@ -189,10 +207,10 @@ async def read_users_me(current_user = Depends(get_current_user)):
         "created_at": current_user["created_at"]
     }
 
-@app.get("/api/wallet/balance/{wallet_address}")
-async def get_wallet_balance(wallet_address: str):
-    # Use Devnet for now
+@app.get("/api/wallet/balance")
+async def get_balance(current_user = Depends(get_current_user)):
     client = get_client("Devnet")
+    wallet_address = current_user["wallet_address"]
     
     # SOL balance
     sol_balance_resp = client.get_balance(Pubkey.from_string(wallet_address))
@@ -209,40 +227,51 @@ async def get_wallet_balance(wallet_address: str):
     return {"sol_balance": sol_balance, "tpc_balance": tpc_balance}
 
 @app.post("/api/wallet/send_sol")
-async def send_sol_api(request: dict):
-    # Expect signedTransaction in request
-    signed_tx_b64 = request.get("signedTransaction")
-    if not signed_tx_b64:
-        raise HTTPException(status_code=400, detail="Missing signedTransaction")
-    
+async def send_sol(request: SendSolRequest, current_user = Depends(get_current_user)):
+    keypair = load_keypair_from_user(current_user)
     client = get_client("Devnet")
-    try:
-        signed_tx_bytes = base64.b64decode(signed_tx_b64)
-        tx = Transaction.from_bytes(signed_tx_bytes)
-        result = client.send_transaction(tx)
-        return {"signature": result.value}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    to_pubkey = Pubkey.from_string(request.recipient)
+    transfer_ix = transfer(TransferParams(
+        from_pubkey=keypair.pubkey(),
+        to_pubkey=to_pubkey,
+        lamports=int(request.amount * 1e9)
+    ))
+    tx = Transaction().add(transfer_ix)
+    recent_blockhash = client.get_recent_blockhash().value.blockhash
+    tx.recent_blockhash = recent_blockhash
+    tx.sign(keypair)
+    result = client.send_transaction(tx)
+    return {"signature": result.value}
 
 @app.post("/api/wallet/send_tpc")
-async def send_tpc_api(request: dict):
-    # Expect signedTransaction in request
-    signed_tx_b64 = request.get("signedTransaction")
-    if not signed_tx_b64:
-        raise HTTPException(status_code=400, detail="Missing signedTransaction")
-    
+async def send_tpc(request: SendTpcRequest, current_user = Depends(get_current_user)):
+    keypair = load_keypair_from_user(current_user)
     client = get_client("Devnet")
-    try:
-        signed_tx_bytes = base64.b64decode(signed_tx_b64)
-        tx = Transaction.from_bytes(signed_tx_bytes)
-        result = client.send_transaction(tx)
-        return {"signature": result.value}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    to_pubkey = Pubkey.from_string(request.recipient)
+    mint_pubkey = Pubkey.from_string(TOPOCOIN_MINT)
+    
+    from_ata = get_associated_token_address(keypair.pubkey(), mint_pubkey)
+    to_ata = get_associated_token_address(to_pubkey, mint_pubkey)
+    
+    transfer_ix = spl_transfer(SplTransferParams(
+        program_id=TOKEN_PROGRAM_ID,
+        source=from_ata,
+        destination=to_ata,
+        owner=keypair.pubkey(),
+        amount=int(request.amount * 10**6),  # Assuming 6 decimals
+        decimals=6
+    ))
+    
+    tx = Transaction().add(transfer_ix)
+    recent_blockhash = client.get_recent_blockhash().value.blockhash
+    tx.recent_blockhash = recent_blockhash
+    tx.sign(keypair)
+    result = client.send_transaction(tx)
+    return {"signature": result.value}
 
 @app.get("/wallets")
 def get_wallets():
-    return {"wallets": list(wallets.keys())}
+    return {"wallets": list(networks.keys())}
 
 @app.get("/networks")
 def get_networks():

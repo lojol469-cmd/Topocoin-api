@@ -1,14 +1,11 @@
 import streamlit as st
-from solana.rpc.api import Client
-from solders.keypair import Keypair
-from solders.pubkey import Pubkey
-from solders.transaction import Transaction
-from solders.system_program import TransferParams, transfer
-from spl.token.instructions import transfer as spl_transfer, TransferParams as SplTransferParams, get_associated_token_address
-from spl.token.constants import TOKEN_PROGRAM_ID
-import json
+import requests
 import os
+from solders.keypair import Keypair
 import base64
+
+# API configuration
+API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000')
 
 # API configuration
 # API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:5000')
@@ -49,23 +46,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar configuration
-with st.sidebar:
-    st.header("⚙️ Configuration")
-    networks = {
-        "Devnet": "https://api.devnet.solana.com",
-        "Mainnet": "https://api.mainnet-beta.solana.com"
-    }
-    selected_network = st.selectbox("Select Network", list(networks.keys()), index=0)
-    SOLANA_RPC_URL = networks[selected_network]
-    TOPOCOIN_MINT = "6zhMkoDvNg7cw8ojTH6BBdkYkDwery4GTRxZKVAPv2EW"  # Topocoin mint address
 
-    wallets = {
-        "Main_Wallet": "~/.config/solana/id.json",
-        "Test_Wallet": "~/.config/solana/id_test.json",
-        "Test_Wallet_2": "~/.config/solana/id_test2.json"
-    }
-    selected_wallet = st.selectbox("Select Wallet", list(wallets.keys()), index=1, format_func=lambda x: x.replace('_', ' '))  # Default to Test Wallet
 
 # Initialize Solana client (for decimals, but can be removed if not needed)
 # client = Client(SOLANA_RPC_URL)
@@ -283,7 +264,7 @@ Avant de commencer, assure-toi d'avoir :
 ## 🧪 Étape 2 : Test de Base du Wallet
 1. **Lance l'app Streamlit :**
    ```bash
-   cd /home/belikan/Topocoin
+   cd /home/belikan/Topocoin/frontend/frontend
    streamlit run app.py
    ```
    - Ouvre l'URL affichée (généralement http://localhost:8501)
