@@ -79,4 +79,4 @@ Voir le tutoriel intégré dans l'application Streamlit pour les étapes de test
 
 ## Licence
 
-[Ajoutez votre licence ici]
+Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de détails.
