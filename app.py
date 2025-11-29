@@ -4,11 +4,14 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 from solders.system_program import TransferParams, transfer
-from spl.token.instructions import transfer as spl_transfer, TransferParams as SplTransferParams
+from spl.token.instructions import transfer as spl_transfer, TransferParams as SplTransferParams, get_associated_token_address
 from spl.token.constants import TOKEN_PROGRAM_ID
 import json
 import os
-import requests
+import base64
+
+# API configuration
+# API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:5000')
 
 # Custom CSS for modern design
 st.markdown("""
@@ -115,26 +118,33 @@ with tab1:
 
     st.markdown(f"<p style='text-align: center;'>{selected_wallet.replace('_', ' ')} Address: <code>{wallet_address}</code></p>", unsafe_allow_html=True)
 
-    # Function to get balances from API
+    # Function to get balances directly from Solana
     @st.cache_data(ttl=30)  # Cache for 30 seconds
-    def get_balances(network, wallet):
+    def get_balances(wallet_address):
         try:
-            response = requests.get(f"http://localhost:8000/balance/{network}/{wallet}")
-            if response.status_code == 200:
-                data = response.json()
-                return data["sol_balance"], data["tpc_balance"]
-            else:
-                st.error(f"API Error: {response.text}")
-                return 0.0, 0.0
+            client = Client(SOLANA_RPC_URL)
+            # SOL balance
+            sol_balance_resp = client.get_balance(Pubkey.from_string(wallet_address))
+            sol_balance = sol_balance_resp.value / 1e9
+            
+            # TPC balance
+            try:
+                ata = get_associated_token_address(owner=Pubkey.from_string(wallet_address), mint=Pubkey.from_string(TOPOCOIN_MINT))
+                tpc_balance_resp = client.get_token_account_balance(ata)
+                tpc_balance = tpc_balance_resp.value.ui_amount or 0
+            except:
+                tpc_balance = 0
+            
+            return sol_balance, tpc_balance
         except Exception as e:
-            st.error(f"Connection Error: {e}")
+            st.error(f"Error fetching balances: {e}")
             return 0.0, 0.0
 
     # Balances section
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("💰 Balances")
     col1, col2 = st.columns(2)
-    sol_balance, topocoin_balance = get_balances(selected_network, selected_wallet)
+    sol_balance, topocoin_balance = get_balances(wallet_address)
     with col1:
         st.markdown(f"<p class='balance'>SOL: {sol_balance:.4f}</p>", unsafe_allow_html=True)
     with col2:
@@ -149,20 +159,23 @@ with tab1:
     if st.button("Send SOL", key="send_sol"):
         if recipient and amount_sol > 0:
             try:
-                data = {
-                    "network": selected_network,
-                    "wallet": selected_wallet,
-                    "recipient": recipient,
-                    "amount": amount_sol
-                }
-                response = requests.post("http://localhost:8000/send_sol", json=data)
-                if response.status_code == 200:
-                    result = response.json()
-                    st.success(f"SOL sent successfully! Signature: {result['signature']}")
-                    st.cache_data.clear()  # Clear cache to refresh balances
-                else:
-                    error_data = response.json()
-                    st.error(f"Error: {error_data.get('detail', 'Unknown error')}")
+                # Create transaction
+                to_pubkey = Pubkey.from_string(recipient)
+                transfer_ix = transfer(TransferParams(
+                    from_pubkey=keypair.pubkey(),
+                    to_pubkey=to_pubkey,
+                    lamports=int(amount_sol * 1e9)
+                ))
+                tx = Transaction().add(transfer_ix)
+                client = Client(SOLANA_RPC_URL)
+                recent_blockhash = client.get_recent_blockhash().value.blockhash
+                tx.recent_blockhash = recent_blockhash
+                tx.sign(keypair)
+                
+                # Send transaction directly
+                result = client.send_transaction(tx)
+                st.success(f"SOL sent successfully! Signature: {result.value}")
+                st.cache_data.clear()  # Clear cache to refresh balances
             except Exception as e:
                 st.error(f"Error: {e}")
         else:
@@ -180,20 +193,32 @@ with tab1:
                 st.error("Insufficient Topocoin balance")
             else:
                 try:
-                    data = {
-                        "network": selected_network,
-                        "wallet": selected_wallet,
-                        "recipient": recipient_tpc,
-                        "amount": amount_tpc
-                    }
-                    response = requests.post("http://localhost:8000/send_tpc", json=data)
-                    if response.status_code == 200:
-                        result = response.json()
-                        st.success(f"Topocoin sent successfully! Signature: {result['signature']}")
-                        st.cache_data.clear()  # Clear cache
-                    else:
-                        error_data = response.json()
-                        st.error(f"Error: {error_data.get('detail', 'Unknown error')}")
+                    # Create SPL token transfer transaction
+                    to_pubkey = Pubkey.from_string(recipient_tpc)
+                    mint_pubkey = Pubkey.from_string(TOPOCOIN_MINT)
+                    
+                    from_ata = get_associated_token_address(keypair.pubkey(), mint_pubkey)
+                    to_ata = get_associated_token_address(to_pubkey, mint_pubkey)
+                    
+                    transfer_ix = spl_transfer(SplTransferParams(
+                        program_id=TOKEN_PROGRAM_ID,
+                        source=from_ata,
+                        destination=to_ata,
+                        owner=keypair.pubkey(),
+                        amount=int(amount_tpc * 10**6),  # Assuming 6 decimals
+                        decimals=6
+                    ))
+                    
+                    tx = Transaction().add(transfer_ix)
+                    client = Client(SOLANA_RPC_URL)
+                    recent_blockhash = client.get_recent_blockhash().value.blockhash
+                    tx.recent_blockhash = recent_blockhash
+                    tx.sign(keypair)
+                    
+                    # Send transaction directly
+                    result = client.send_transaction(tx)
+                    st.success(f"Topocoin sent successfully! Signature: {result.value}")
+                    st.cache_data.clear()  # Clear cache
                 except Exception as e:
                     st.error(f"Error: {e}")
         else:

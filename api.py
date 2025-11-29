@@ -137,7 +137,7 @@ def get_decimals(client: Client):
         return 6
 
 # User endpoints
-@app.post("/register", response_model=Token)
+@app.post("/api/auth/register", response_model=Token)
 async def register(user: UserCreate):
     # Check if user exists
     existing_user = await db.users.find_one({"email": user.email})
@@ -165,7 +165,7 @@ async def register(user: UserCreate):
     
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/login", response_model=Token)
+@app.post("/api/auth/login", response_model=Token)
 async def login(user: UserLogin):
     db_user = await db.users.find_one({"email": user.email})
     if not db_user:
@@ -180,7 +180,7 @@ async def login(user: UserLogin):
     
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/me", response_model=User)
+@app.get("/api/auth/me", response_model=User)
 async def read_users_me(current_user = Depends(get_current_user)):
     return {
         "id": str(current_user["_id"]),
@@ -189,11 +189,10 @@ async def read_users_me(current_user = Depends(get_current_user)):
         "created_at": current_user["created_at"]
     }
 
-@app.get("/balance", response_model=BalanceResponse)
-async def get_balance(current_user = Depends(get_current_user)):
-    # Use Devnet for now, can add network selection later
+@app.get("/api/wallet/balance/{wallet_address}")
+async def get_wallet_balance(wallet_address: str):
+    # Use Devnet for now
     client = get_client("Devnet")
-    wallet_address = current_user["wallet_address"]
     
     # SOL balance
     sol_balance_resp = client.get_balance(Pubkey.from_string(wallet_address))
@@ -207,18 +206,39 @@ async def get_balance(current_user = Depends(get_current_user)):
     except:
         tpc_balance = 0
     
-    return BalanceResponse(sol_balance=sol_balance, tpc_balance=tpc_balance)
+    return {"sol_balance": sol_balance, "tpc_balance": tpc_balance}
 
-@app.post("/send_sol")
-async def send_sol(request: SendSolRequest, current_user = Depends(get_current_user)):
-    # For security, transactions should be signed client-side
-    # This is a placeholder - in production, accept signed transaction
-    raise HTTPException(status_code=501, detail="Transaction signing must be done client-side")
+@app.post("/api/wallet/send_sol")
+async def send_sol_api(request: dict):
+    # Expect signedTransaction in request
+    signed_tx_b64 = request.get("signedTransaction")
+    if not signed_tx_b64:
+        raise HTTPException(status_code=400, detail="Missing signedTransaction")
+    
+    client = get_client("Devnet")
+    try:
+        signed_tx_bytes = base64.b64decode(signed_tx_b64)
+        tx = Transaction.from_bytes(signed_tx_bytes)
+        result = client.send_transaction(tx)
+        return {"signature": result.value}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/send_tpc")
-async def send_tpc(request: SendTpcRequest, current_user = Depends(get_current_user)):
-    # Same as above
-    raise HTTPException(status_code=501, detail="Transaction signing must be done client-side")
+@app.post("/api/wallet/send_tpc")
+async def send_tpc_api(request: dict):
+    # Expect signedTransaction in request
+    signed_tx_b64 = request.get("signedTransaction")
+    if not signed_tx_b64:
+        raise HTTPException(status_code=400, detail="Missing signedTransaction")
+    
+    client = get_client("Devnet")
+    try:
+        signed_tx_bytes = base64.b64decode(signed_tx_b64)
+        tx = Transaction.from_bytes(signed_tx_bytes)
+        result = client.send_transaction(tx)
+        return {"signature": result.value}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/wallets")
 def get_wallets():
