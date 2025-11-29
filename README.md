@@ -1,6 +1,40 @@
-# Topocoin API et Wallet Streamlit
+# Topocoin Wallet
 
-Ce projet contient une API FastAPI pour les opérations wallet Topocoin sur Solana, ainsi qu'une interface utilisateur Streamlit.
+A multi-user Solana wallet for Topocoin with FastAPI backend and Streamlit frontend.
+
+## Architecture
+
+- **Backend**: Python FastAPI API for user management and transactions (`backend/`)
+- **Frontend**: Streamlit web app for user interface (`frontend/`)
+
+## Quick Start with Docker Compose
+
+1. Ensure Docker and Docker Compose are installed.
+
+2. Clone the repository and navigate to the project directory.
+
+3. Run the services:
+   ```bash
+   docker-compose up --build
+   ```
+
+4. Access the app:
+   - Frontend: http://localhost:8501
+   - Backend API: http://localhost:8000
+
+## Manual Setup
+
+See `backend/README.md` and `frontend/README.md` for individual setup instructions.
+
+## Environment Variables
+
+Configure `.env` files in `backend/` and `frontend/` directories as described in their respective READMEs.
+
+## Deployment
+
+- Deploy `backend/` to a cloud service like Render or Heroku
+- Deploy `frontend/` to Streamlit Cloud
+- Update `API_BASE_URL` in `frontend/.env` with the deployed backend URL
 
 ## Fonctionnalités
 
@@ -8,79 +42,11 @@ Ce projet contient une API FastAPI pour les opérations wallet Topocoin sur Sola
 - Interface web moderne avec Streamlit
 - Support Devnet et Mainnet Solana
 - Gestion automatique des Associated Token Accounts (ATA)
-
-## Installation
-
-1. Clonez le repository :
-```bash
-git clone https://github.com/lojol469-cmd/Topocoin-api.git
-cd Topocoin-api
-```
-
-2. Installez les dépendances :
-```bash
-pip install -r requirements.txt
-```
-
-3. Configurez vos wallets Solana :
-```bash
-# Créez les keypairs si nécessaire
-solana-keygen new -o ~/.config/solana/id.json
-solana-keygen new -o ~/.config/solana/id_test.json
-solana-keygen new -o ~/.config/solana/id_test2.json
-```
-
-## Utilisation
-
-### Démarrer l'API
-```bash
-python api.py
-```
-L'API sera disponible sur http://localhost:8000
-
-### Démarrer l'interface Streamlit
-```bash
-streamlit run app.py
-```
-L'interface sera disponible sur http://localhost:8501
-
-## Docker
-
-### Construire l'image
-```bash
-docker build -t topocoin .
-```
-
-### Lancer le conteneur
-```bash
-docker run -p 8000:8000 -p 8501:8501 topocoin
-```
-
-## Endpoints API
-
-### Authentification
-- `POST /register` : Inscription utilisateur (email, password, wallet_address, seed_phrase_encrypted)
-- `POST /login` : Connexion (email, password) → retourne JWT token
-- `GET /me` : Informations utilisateur (nécessite token JWT)
-
-### Wallet
-- `GET /balance` : Obtenir les balances SOL et TPC (nécessite token)
-- `POST /send_sol` : Envoyer des SOL (nécessite token) - *Signature client-side requise*
-- `POST /send_tpc` : Envoyer des Topocoin (nécessite token) - *Signature client-side requise*
-
-### Utilitaires
-- `GET /networks` : Liste des réseaux disponibles
-
-**Note** : Les transactions sont signées côté client pour la sécurité. L'API ne stocke pas les clés privées.
-
-## Configuration
-
-- Mint Topocoin : `6zhMkoDvNg7cw8ojTH6BBdkYkDwery4GTRxZKVAPv2EW` (Devnet)
-- Réseaux supportés : Devnet, Mainnet
+- Authentification multi-utilisateur sécurisée
 
 ## Sécurité
 
-⚠️ **Important** : Ne partagez jamais vos clés privées. L'application charge les keypairs depuis des fichiers locaux sécurisés.
+⚠️ **Important** : Les clés privées sont stockées chiffrées en base de données. Ne partagez jamais vos seed phrases.
 
 ## Tests
 
