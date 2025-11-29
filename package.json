@@ -1,0 +1,15 @@
+{
+  "name": "topocoin-metadata",
+  "version": "1.0.0",
+  "description": "Script to upload metadata for Topocoin SPL token",
+  "main": "metadata.js",
+  "scripts": {
+    "start": "node metadata.js"
+  },
+  "dependencies": {
+    "@metaplex-foundation/mpl-token-metadata": "^3.2.1",
+    "@metaplex-foundation/umi": "^0.9.1",
+    "@metaplex-foundation/umi-bundle-defaults": "^0.9.1",
+    "nft.storage": "^7.1.1"
+  }
+}

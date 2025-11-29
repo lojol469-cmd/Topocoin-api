@@ -1,0 +1,6 @@
+streamlit
+solana
+pillow
+fastapi
+uvicorn
+pydantic
