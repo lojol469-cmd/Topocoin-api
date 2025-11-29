@@ -64,7 +64,7 @@ networks = {
     "Mainnet": "https://api.mainnet-beta.solana.com"
 }
 
-TOPOCOIN_MINT = "6zhMkoDvNg7cw8ojTH6BBdkYkDwery4GTRxZKVAPv2EW"
+TOPOCOIN_MINT = os.getenv("TOPOCOIN_MINT")
 
 # Pydantic models
 class SendSolRequest(BaseModel):
