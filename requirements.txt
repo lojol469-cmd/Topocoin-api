@@ -4,3 +4,8 @@ pillow
 fastapi
 uvicorn
 pydantic
+motor
+python-jose[cryptography]
+bcrypt
+python-multipart
+python-dotenv
