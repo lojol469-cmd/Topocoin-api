@@ -1,14 +1,52 @@
 import streamlit as st
 import requests
 import os
+import json
 from solders.keypair import Keypair
 import base64
+from dotenv import load_dotenv
+import random
+
+load_dotenv()
 
 # API configuration
 API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8000')
 
-# API configuration
-# API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:5000')
+# Custom CSS for modern design
+st.markdown("""
+<style>
+    .main {
+        background-color: #f0f2f6;
+    }
+    .stButton>button {
+        background-color: #007bff;
+        color: white;
+        border-radius: 10px;
+        border: none;
+        padding: 10px 20px;
+        font-size: 16px;
+    }
+    .stButton>button:hover {
+        background-color: #0056b3;
+    }
+    .card {
+        background-color: white;
+        border-radius: 15px;
+        padding: 20px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .balance {
+        font-size: 24px;
+        font-weight: bold;
+        color: #28a745;
+    }
+    .header {
+        text-align: center;
+        color: #007bff;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Custom CSS for modern design
 st.markdown("""
@@ -66,29 +104,101 @@ st.markdown("""
 
 # DECIMALS = get_token_decimals()
 
-# Load keypair from file
-def load_keypair():
-    keypair_path = os.path.expanduser(wallets[selected_wallet])
-    if os.path.exists(keypair_path):
-        with open(keypair_path, 'r') as f:
-            secret_key = json.load(f)
-        return Keypair.from_bytes(bytes(secret_key))
-    else:
-        st.error(f"Keypair not found for {selected_wallet}. Please generate one with solana-keygen new.")
-        return None
+# Sidebar for authentication
+st.sidebar.title("Topocoin Wallet")
 
-keypair = load_keypair()
-if keypair:
-    wallet_address = str(keypair.pubkey())
+if 'token' not in st.session_state:
+    st.session_state.token = None
+    st.session_state.user = None
+
+if st.session_state.token is None:
+    auth_tab = st.sidebar.tabs(["Login", "Register"])
+    
+    with auth_tab[0]:  # Login
+        st.subheader("Login")
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        if st.button("Login"):
+            response = requests.post(f"{API_BASE_URL}/api/auth/login", json={"email": email, "password": password})
+            if response.status_code == 200:
+                data = response.json()
+                st.session_state.token = data['access_token']
+                # Get user info
+                headers = {'Authorization': f'Bearer {st.session_state.token}'}
+                user_response = requests.get(f"{API_BASE_URL}/api/auth/me", headers=headers)
+                if user_response.status_code == 200:
+                    st.session_state.user = user_response.json()
+                    st.success("Logged in successfully!")
+                    st.rerun()
+                else:
+                    st.error("Failed to get user info")
+            else:
+                st.error("Login failed")
+    
+    with auth_tab[1]:  # Register
+        st.subheader("Register")
+        reg_email = st.text_input("Email", key="reg_email")
+        reg_password = st.text_input("Password", type="password", key="reg_password")
+        wallet_address = st.text_input("Wallet Address (optional)", key="reg_wallet")
+        seed_encrypted = st.text_input("Encrypted Seed Phrase (optional)", key="reg_seed")
+        if st.button("Register"):
+            payload = {"email": reg_email, "password": reg_password}
+            if wallet_address:
+                payload["wallet_address"] = wallet_address
+            if seed_encrypted:
+                payload["seed_phrase_encrypted"] = seed_encrypted
+            response = requests.post(f"{API_BASE_URL}/api/auth/register", json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                st.session_state.token = data['access_token']
+                st.session_state.user = {"email": reg_email, "wallet_address": data.get('wallet_address', wallet_address)}
+                st.success("Account created! Now verify your recovery phrase.")
+                if 'seed_phrase' in data:
+                    words = data['seed_phrase'].split()
+                    st.info("**Your Recovery Phrase (12 words - save it securely!):**")
+                    st.code(data['seed_phrase'])
+                    st.warning("Write it down and keep it safe. Never share it.")
+                    
+                    # Verification step
+                    st.write("### Verify Your Recovery Phrase")
+                    st.write("Select the words in the correct order:")
+                    if 'shuffled_words' not in st.session_state:
+                        st.session_state.shuffled_words = random.sample(words, len(words))
+                    selected = st.multiselect(
+                        "Click the words in the order they appear in your phrase:",
+                        st.session_state.shuffled_words,
+                        key="phrase_verify"
+                    )
+                    if st.button("Verify Phrase"):
+                        if selected == words:
+                            st.success("✅ Verification successful! Welcome to Topocoin.")
+                            st.session_state.verified = True
+                            st.rerun()
+                        else:
+                            st.error("❌ Incorrect order. Please try again.")
+                            st.session_state.shuffled_words = random.sample(words, len(words))
+                            selected = []
+                    if st.session_state.get('verified'):
+                        st.rerun()
+                else:
+                    st.rerun()
+            else:
+                st.error(f"Registration failed: {response.text}")
 else:
-    wallet_address = None
+    st.sidebar.write(f"Logged in as: {st.session_state.user['email']}")
+    if st.sidebar.button("Logout"):
+        st.session_state.token = None
+        st.session_state.user = None
+        st.rerun()
 
 # Tabs
 tab1, tab2 = st.tabs(["💰 Wallet", "📚 Tutorial"])
 
 with tab1:
-    if not keypair:
+    if st.session_state.token is None:
         st.stop()
+
+    wallet_address = st.session_state.user['wallet_address']
 
     # Title with logo
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -97,35 +207,25 @@ with tab1:
         st.image(logo_path, width=100)
         st.markdown("<h1 class='header'>Topocoin Official Wallet</h1>", unsafe_allow_html=True)
 
-    st.markdown(f"<p style='text-align: center;'>{selected_wallet.replace('_', ' ')} Address: <code>{wallet_address}</code></p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center;'>Wallet Address: <code>{wallet_address}</code></p>", unsafe_allow_html=True)
 
-    # Function to get balances directly from Solana
+    # Function to get balances from backend
     @st.cache_data(ttl=30)  # Cache for 30 seconds
-    def get_balances(wallet_address):
-        try:
-            client = Client(SOLANA_RPC_URL)
-            # SOL balance
-            sol_balance_resp = client.get_balance(Pubkey.from_string(wallet_address))
-            sol_balance = sol_balance_resp.value / 1e9
-            
-            # TPC balance
-            try:
-                ata = get_associated_token_address(owner=Pubkey.from_string(wallet_address), mint=Pubkey.from_string(TOPOCOIN_MINT))
-                tpc_balance_resp = client.get_token_account_balance(ata)
-                tpc_balance = tpc_balance_resp.value.ui_amount or 0
-            except:
-                tpc_balance = 0
-            
-            return sol_balance, tpc_balance
-        except Exception as e:
-            st.error(f"Error fetching balances: {e}")
+    def get_balances():
+        headers = {'Authorization': f'Bearer {st.session_state.token}'}
+        response = requests.get(f'{API_BASE_URL}/api/wallet/balance', headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            return data['sol_balance'], data['tpc_balance']
+        else:
+            st.error(f"Error fetching balances: {response.text}")
             return 0.0, 0.0
 
     # Balances section
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("💰 Balances")
     col1, col2 = st.columns(2)
-    sol_balance, topocoin_balance = get_balances(wallet_address)
+    sol_balance, topocoin_balance = get_balances()
     with col1:
         st.markdown(f"<p class='balance'>SOL: {sol_balance:.4f}</p>", unsafe_allow_html=True)
     with col2:
@@ -139,26 +239,14 @@ with tab1:
     amount_sol = st.number_input("Amount (SOL)", min_value=0.0, key="sol_amount")
     if st.button("Send SOL", key="send_sol"):
         if recipient and amount_sol > 0:
-            try:
-                # Create transaction
-                to_pubkey = Pubkey.from_string(recipient)
-                transfer_ix = transfer(TransferParams(
-                    from_pubkey=keypair.pubkey(),
-                    to_pubkey=to_pubkey,
-                    lamports=int(amount_sol * 1e9)
-                ))
-                tx = Transaction().add(transfer_ix)
-                client = Client(SOLANA_RPC_URL)
-                recent_blockhash = client.get_recent_blockhash().value.blockhash
-                tx.recent_blockhash = recent_blockhash
-                tx.sign(keypair)
-                
-                # Send transaction directly
-                result = client.send_transaction(tx)
-                st.success(f"SOL sent successfully! Signature: {result.value}")
+            headers = {'Authorization': f'Bearer {st.session_state.token}', 'Content-Type': 'application/json'}
+            data = {'recipient': recipient, 'amount': amount_sol}
+            response = requests.post(f'{API_BASE_URL}/api/wallet/send_sol', json=data, headers=headers)
+            if response.status_code == 200:
+                st.success(f"SOL sent successfully! Signature: {response.json()['signature']}")
                 st.cache_data.clear()  # Clear cache to refresh balances
-            except Exception as e:
-                st.error(f"Error: {e}")
+            else:
+                st.error(f"Error: {response.text}")
         else:
             st.error("Invalid input")
     st.markdown("</div>", unsafe_allow_html=True)
@@ -173,45 +261,36 @@ with tab1:
             if topocoin_balance < amount_tpc:
                 st.error("Insufficient Topocoin balance")
             else:
-                try:
-                    # Create SPL token transfer transaction
-                    to_pubkey = Pubkey.from_string(recipient_tpc)
-                    mint_pubkey = Pubkey.from_string(TOPOCOIN_MINT)
-                    
-                    from_ata = get_associated_token_address(keypair.pubkey(), mint_pubkey)
-                    to_ata = get_associated_token_address(to_pubkey, mint_pubkey)
-                    
-                    transfer_ix = spl_transfer(SplTransferParams(
-                        program_id=TOKEN_PROGRAM_ID,
-                        source=from_ata,
-                        destination=to_ata,
-                        owner=keypair.pubkey(),
-                        amount=int(amount_tpc * 10**6),  # Assuming 6 decimals
-                        decimals=6
-                    ))
-                    
-                    tx = Transaction().add(transfer_ix)
-                    client = Client(SOLANA_RPC_URL)
-                    recent_blockhash = client.get_recent_blockhash().value.blockhash
-                    tx.recent_blockhash = recent_blockhash
-                    tx.sign(keypair)
-                    
-                    # Send transaction directly
-                    result = client.send_transaction(tx)
-                    st.success(f"Topocoin sent successfully! Signature: {result.value}")
+                headers = {'Authorization': f'Bearer {st.session_state.token}', 'Content-Type': 'application/json'}
+                data = {'recipient': recipient_tpc, 'amount': amount_tpc}
+                response = requests.post(f'{API_BASE_URL}/api/wallet/send_tpc', json=data, headers=headers)
+                if response.status_code == 200:
+                    st.success(f"Topocoin sent successfully! Signature: {response.json()['signature']}")
                     st.cache_data.clear()  # Clear cache
-                except Exception as e:
-                    st.error(f"Error: {e}")
+                else:
+                    st.error(f"Error: {response.text}")
         else:
             st.error("Invalid input")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Receive section
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("📥 Receive")
-    st.write(f"Share your {selected_wallet.replace('_', ' ')} address to receive SOL or Topocoin:")
-    st.code(wallet_address, language="")
-    st.markdown("</div>", unsafe_allow_html=True)
+    # Mint Topocoin section (for creator only)
+    if st.session_state.user.get('email') == 'nyundumathryme@gmail.com':
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("🪙 Mint Topocoin (Creator Only)")
+        mint_amount = st.number_input("Amount (TPC)", min_value=0.0, key="mint_amount")
+        if st.button("Mint TPC", key="mint_tpc"):
+            if mint_amount > 0:
+                headers = {'Authorization': f'Bearer {st.session_state.token}', 'Content-Type': 'application/json'}
+                data = {'recipient': wallet_address, 'amount': mint_amount}
+                response = requests.post(f'{API_BASE_URL}/api/wallet/mint_tpc', json=data, headers=headers)
+                if response.status_code == 200:
+                    st.success(f"TPC minted successfully! Signature: {response.json()['signature']}")
+                    st.cache_data.clear()
+                else:
+                    st.error(f"Error: {response.text}")
+            else:
+                st.error("Invalid amount")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # Refresh button
     if st.button("🔄 Refresh Balances"):
